@@ -1,0 +1,84 @@
+name: 🚀 Release
+
+# Pushing a tag vX.Y.Z builds the package and publishes a GitHub release.
+# See RELEASING.md.
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+env:
+  PLUGIN_NAME: oidc
+  PLUGIN_CATEGORY: devel
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout plugins
+        run: git clone --depth 1 https://github.com/opnsense/plugins.git ${GITHUB_WORKSPACE}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.PLUGIN_CATEGORY }}/${{ env.PLUGIN_NAME }}
+
+      - name: Check the tag against the Makefile and the changelog
+        working-directory: ${{ env.PLUGIN_CATEGORY }}/${{ env.PLUGIN_NAME }}
+        run: |
+          version=$(awk -F= '/^PLUGIN_VERSION=/ { gsub(/[ \t]/, "", $2); print $2 }' Makefile)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match PLUGIN_VERSION $version in the Makefile"
+            exit 1
+          fi
+          awk -v v="$version" '
+            /^## / { on = ($2 == v) ; next }
+            on     { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Run the offline ID-token tests
+        working-directory: ${{ env.PLUGIN_CATEGORY }}/${{ env.PLUGIN_NAME }}
+        run: |
+          H=$(mktemp -d) && mkdir "$H/Oidc"
+          cp -r src/opnsense/mvc/app/library/OPNsense/Oidc/* "$H/Oidc/"
+          cp test/idtoken-harness.php "$H/t.php"
+          chmod -R a+rX "$H"
+          docker run --rm --network none -v "$H:/h:ro" -w /h php:8.5-cli \
+            php -d error_reporting=E_ALL t.php | tee "$RUNNER_TEMP/tests.log"
+          grep -q '^ALL PASSED' "$RUNNER_TEMP/tests.log"
+
+      - name: Build package in FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          envs: 'PLUGIN_NAME PLUGIN_CATEGORY'
+          usesh: true
+          release: "14.3"
+          prepare: |
+            pkg install -y git gmake
+          run: |
+            cd $PLUGIN_CATEGORY/$PLUGIN_NAME
+            make package
+
+      - name: Publish the release
+        working-directory: ${{ env.PLUGIN_CATEGORY }}/${{ env.PLUGIN_NAME }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd work/pkg
+          ls -l
+          test -f "os-${PLUGIN_NAME}-devel-${VERSION}.pkg"
+          sha256sum *.pkg > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" *.pkg SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag
