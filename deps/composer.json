@@ -1,0 +1,8 @@
+{
+    "name": "opnsense-oidc/bundled-libraries",
+    "description": "Tracking manifest only, never installed. Lists the libraries bundled under src/opnsense/mvc/app/library/OPNsense/Oidc/vendor/ so Dependabot can report new releases and advisories. Keep the versions equal to each library's VERSION file.",
+    "type": "metapackage",
+    "require": {
+        "firebase/php-jwt": "7.2.0"
+    }
+}

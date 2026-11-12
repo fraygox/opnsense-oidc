@@ -1,0 +1,18 @@
+# Dependabot version updates. Free on GitHub for every repository.
+version: 2
+updates:
+  # Actions used by .github/workflows/build-pkg.yml
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Bundled PHP libraries. They are copied into src/ by hand (OPNsense plugins
+  # ship without Composer), so deps/composer.json only records which versions
+  # are bundled. A pull request here means: re-vendor the library as described
+  # in its BUNDLED.md, then merge.
+  - package-ecosystem: composer
+    directory: /deps
+    schedule:
+      interval: weekly
+    versioning-strategy: increase
